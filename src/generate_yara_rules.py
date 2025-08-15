@@ -40,25 +40,28 @@ def load_data_and_handle_encoding(data_dir):
             label = os.path.splitext(filename)[0]
             print(f"Processing: {filename}")
 
-            try:
-                # Try UTF-8 first
-                with open(file_path, 'r', encoding='utf-8') as file_handle:
-                    content = file_handle.read()
-                print("Read with UTF-8")
-            except UnicodeDecodeError:
+            # Try different encodings
+            encodings = ['utf-8', 'utf-16', 'latin-1']
+            content = None
+            for encoding in encodings:
                 try:
-                    # Try latin-1 if UTF-8 fails
-                    with open(file_path, 'r', encoding='latin-1') as file_handle:
+                    with open(file_path, 'r', encoding=encoding) as file_handle:
                         content = file_handle.read()
-                    print("Read with latin-1")
+                    print(f"Read successfully with {encoding}")
+                    break
+                except UnicodeDecodeError:
+                    print(f"Failed to read with {encoding}")
+                    continue
                 except Exception as encoding_error:
-                    print(f"Error reading {filename}: {encoding_error}")
-                    content = ""
-            except Exception as general_error:
-                print(f"Unexpected error with {filename}: {general_error}")
-                content = ""
-
-            if content:
+                    print(f"Error reading {filename} with {encoding}: {encoding_error}")
+                    content = None
+                    break
+            
+            if content is not None:
+                # Remove BOM if it was read as a character
+                if content.startswith('\ufeff'):
+                    content = content[1:]
+                
                 data[label] = content
                 print(f"Loaded content: {len(content)} characters")
             else:
@@ -86,74 +89,72 @@ def generate_yara_rule_text(label, content):
     yara_identifier = re.sub(r'[^a-zA-Z0-9_]', '_', label)
     yara_strings = []
 
-    # More aggressive sanitization
-    sanitized_content = re.sub(r'[\x00-\x1F\x7F-\x9F]', '', content)
-    sanitized_content = sanitized_content.replace('\r\n', '\n').replace('\r', '\n')
-
-    if label == "Microsoft_Defender_All_signatures_list":
+    # More aggressive sanitization while preserving newlines
+    sanitized_content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', content)
+    
+    # Using re.split to handle various line endings more robustly
+    lines = re.split(r'[\r\n]+', sanitized_content.strip())
+    
+    if label.lower().endswith("signatures_list"): # Adjusted condition for flexibility
         # Special handling for CSV
-        lines = sanitized_content.strip().split('\n')
         if not lines:
             print("Empty CSV file")
             return ""
 
         csv_reader = csv.reader(lines)
-
+        
         # Skip header if it exists
         try:
             first_row = next(csv_reader)
-            header_keywords = ['name', 'signature', 'hash', 'file']
-            if first_row and any(word in first_row[0].lower() for word in header_keywords):
+            if first_row and any(word in first_row[0].lower() for word in ['name', 'signature', 'hash', 'file']):
                 print(f"Header detected and skipped: {first_row[0]}")
             elif first_row and first_row[0].strip():
-                escaped_string = (first_row[0].strip()
-                                .replace('\\', '\\\\')
-                                .replace('"', '\\"'))
-                if escaped_string:
+                # Process the first row if it's not a header
+                sanitized_string = first_row[0].strip()
+                if sanitized_string:
+                    escaped_string = sanitized_string.replace('\\', '\\\\').replace('"', '\\"')
                     yara_strings.append(f'\t$s0 = "{escaped_string}"')
         except StopIteration:
             print("Empty CSV or no data")
             return ""
 
         string_counter = len(yara_strings)
+        max_strings_for_csv = 9000  # Well below YARA's 10,000 limit
+        
         for row in csv_reader:
             if row and row[0]:
+                # Stop if we've reached the maximum number of strings
+                if string_counter >= max_strings_for_csv:
+                    print(f"Warning: Limiting CSV rule to {max_strings_for_csv} strings to avoid YARA limits")
+                    break
+                    
                 sanitized_string = row[0].strip()
                 if sanitized_string:
-                    escaped_string = (sanitized_string
-                                    .replace('\\', '\\\\')
-                                    .replace('"', '\\"'))
+                    escaped_string = sanitized_string.replace('\\', '\\\\').replace('"', '\\"')
                     yara_strings.append(f'\t$s{string_counter} = "{escaped_string}"')
                     string_counter += 1
 
-        print(f"Valid strings found: {len(yara_strings)}")
-        if not yara_strings:
-            print(f"No valid strings found for {label}")
-            return ""
-
-        strings_section = "\n".join(yara_strings)
-        rule = f'''rule {yara_identifier} : {label} {{
-    strings:
-{strings_section}
-    condition:
-        any of them
-}}
-
-'''
-        return rule
-
-    # Handling for text files
-    lines = sanitized_content.strip().split('\n')
-    string_counter = 0
-
-    for line in lines:
-        cleaned_line = line.strip()
-        if cleaned_line and not cleaned_line.startswith(('#', '//')):
-            escaped_line = (cleaned_line
-                          .replace('\\', '\\\\')
-                          .replace('"', '\\"'))
-            yara_strings.append(f'\t$s{string_counter} = "{escaped_line}"')
-            string_counter += 1
+    else:
+        # Handling for general text files
+        string_counter = 0
+        max_string_length = 8192  # YARA string length limit
+        max_strings_per_rule = 100  # Practical limit for rule readability
+        
+        for line in lines:
+            cleaned_line = line.strip()
+            if cleaned_line and not cleaned_line.startswith(('#', '//')):
+                # Check if we've reached the maximum number of strings
+                if string_counter >= max_strings_per_rule:
+                    break
+                    
+                # Truncate very long strings to avoid YARA limits
+                if len(cleaned_line) > max_string_length:
+                    cleaned_line = cleaned_line[:max_string_length]
+                    print(f"Warning: String truncated for rule {yara_identifier} (original length: {len(line.strip())})")
+                
+                escaped_line = cleaned_line.replace('\\', '\\\\').replace('"', '\\"')
+                yara_strings.append(f'\t$s{string_counter} = "{escaped_line}"')
+                string_counter += 1
 
     print(f"Valid strings found: {len(yara_strings)}")
 
