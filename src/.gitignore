@@ -1,0 +1,12 @@
+# Ignora archivos de datos
+*.csv
+*.txt
+
+# Ignora carpetas de datos
+/new_input_files/
+
+# Ignora archivos de IPython Notebook con mucho output
+*.ipynb
+
+# Ignora la carpeta de output
+/output/
