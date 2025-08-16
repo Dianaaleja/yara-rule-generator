@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Author: Pierre Gronau <Pierre.Gronau@ndaal.eu>
+# Copyright (c) 2024
+# Copyright (c) Pierre Gronau <Pierre.Gronau@ndaal.eu>
+# Copyright (c) ndaal, Germany
+# License: All content is licensed under the terms of the <MIT License>
+# Developed on: Debian 12.x x86 architecture; macOS Sonoma x86 architecture
+# Tested on: Debian 12.x x86 architecture; macOS Sonoma x86 architecture
+
+# Exit on error. Append "|| true" if you expect an error.
+set -o errexit
+# Exit on error inside any functions or subshells.
+set -o errtrace
+# Do not allow use of undefined vars. Use ${VAR:-} to use an undefined VAR
+set -o nounset
+# Catch the error in case a command in a pipeline fails
+set -o pipefail
+
+# Set $IFS to only newline and tab.
+IFS=$'\n\t'
+
+trap cleanup SIGINT SIGTERM ERR EXIT
+
+cleanup() {
+    trap - SIGINT SIGTERM ERR EXIT
+    printf "%b\n" "\nCleanup is running"
+    # Additional cleanup tasks can be added here if needed
+}
+
+# Metadata variables
+COPYRIGHT="Copyright (c) 2024 ndaal, Cologne, Germany"
+LICENSE="MIT License"
+SHARING="TLP:WHITE"
+VERSION="1.0"
+STATUS="RELEASED"
+CREATED=$(date +"%Y-%m-%d")
+MODIFIED=$(date +"%Y-%m-%d")
+AUTHOR="Pierre Gronau"
+CATEGORY="INFO"
+REFERENCE="https://github.com/mthcht/awesome-lists/tree/main/Lists"
+SEVERITY="high"
+SOURCE="ndaal Gesellschaft für Sicherheit in der Informationstechnik mbH & Co KG"
+TAG1="Windows"
+TAG2="ASR"
+
+readonly COPYRIGHT
+verbose_msg "Copyright: ${COPYRIGHT}"
+
+readonly LICENSE
+verbose_msg "License: ${LICENSE}"
+
+readonly SHARING
+verbose_msg "Sharing: ${SHARING}"
+
+readonly VERSION
+verbose_msg "Version; ${VERSION}"
+
+readonly STATUS
+verbose_msg "Status: ${STATUS}"
+
+readonly CREATED
+verbose_msg "Created: ${CREATED}"
+
+readonly MODIFIED
+verbose_msg "Modified: ${MODIFIED}"
+
+readonly AUTHOR
+verbose_msg "Author: ${AUTHOR}"
+
+readonly CATEGORY
+verbose_msg "Category: ${CATEGORY}"
+
+readonly REFERENCE
+verbose_msg "Reference: ${REFERENCE}"
+
+readonly SEVERITY
+verbose_msg "Severity: ${SEVERITY}"
+
+readonly SOURCE
+verbose_msg "Source: ${SOURCE}"
+
+readonly TAG1
+verbose_msg "Tag1: ${TAG1}"
+
+readonly TAG2
+verbose_msg "Tag2: ${TAG2}"
