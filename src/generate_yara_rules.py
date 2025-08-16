@@ -9,6 +9,7 @@ import argparse
 import csv
 import os
 import re
+import traceback
 from datetime import datetime
 
 # Check for yara-python availability
@@ -52,16 +53,15 @@ def load_data_and_handle_encoding(data_dir):
                 except UnicodeDecodeError:
                     print(f"Failed to read with {encoding}")
                     continue
-                except Exception as encoding_error:
+                except (OSError, IOError) as encoding_error:
                     print(f"Error reading {filename} with {encoding}: {encoding_error}")
                     content = None
                     break
-            
             if content is not None:
                 # Remove BOM if it was read as a character
                 if content.startswith('\ufeff'):
                     content = content[1:]
-                
+
                 data[label] = content
                 print(f"Loaded content: {len(content)} characters")
             else:
@@ -72,6 +72,97 @@ def load_data_and_handle_encoding(data_dir):
 
 
 # Step 2: YARA Rule Generation
+def _process_csv_data(lines, label):  # pylint: disable=unused-argument
+    """
+    Process CSV data and extract YARA strings.
+
+    Args:
+        lines (list): List of lines from CSV content.
+        label (str): Label for the rule.
+
+    Returns:
+        list: List of YARA string definitions.
+    """
+    if not lines:
+        print("Empty CSV file")
+        return []
+
+    csv_reader = csv.reader(lines)
+    yara_strings = []
+
+    # Skip header if it exists
+    try:
+        first_row = next(csv_reader)
+        header_words = ['name', 'signature', 'hash', 'file']
+        if first_row and any(word in first_row[0].lower() for word in header_words):
+            print(f"Header detected and skipped: {first_row[0]}")
+        elif first_row and first_row[0].strip():
+            # Process the first row if it's not a header
+            sanitized_string = first_row[0].strip()
+            if sanitized_string:
+                escaped_string = sanitized_string.replace('\\', '\\\\').replace('"', '\\"')
+                yara_strings.append(f'\t$s0 = "{escaped_string}"')
+    except StopIteration:
+        print("Empty CSV or no data")
+        return []
+
+    string_counter = len(yara_strings)
+    max_strings_for_csv = 9000  # Well below YARA's 10,000 limit
+
+    for row in csv_reader:
+        if row and row[0]:
+            # Stop if we've reached the maximum number of strings
+            if string_counter >= max_strings_for_csv:
+                warning_msg = f"Warning: Limiting CSV rule to {max_strings_for_csv} strings"
+                print(f"{warning_msg} to avoid YARA limits")
+                break
+
+            sanitized_string = row[0].strip()
+            if sanitized_string:
+                escaped_string = sanitized_string.replace('\\', '\\\\').replace('"', '\\"')
+                yara_strings.append(f'\t$s{string_counter} = "{escaped_string}"')
+                string_counter += 1
+
+    return yara_strings
+
+
+def _process_text_data(lines, yara_identifier):
+    """
+    Process general text file data and extract YARA strings.
+
+    Args:
+        lines (list): List of lines from text content.
+        yara_identifier (str): YARA identifier for the rule.
+
+    Returns:
+        list: List of YARA string definitions.
+    """
+    yara_strings = []
+    string_counter = 0
+    max_string_length = 8192  # YARA string length limit
+    max_strings_per_rule = 100  # Practical limit for rule readability
+
+    for line in lines:
+        cleaned_line = line.strip()
+        if cleaned_line and not cleaned_line.startswith(('#', '//')):
+            # Check if we've reached the maximum number of strings
+            if string_counter >= max_strings_per_rule:
+                break
+
+            # Truncate very long strings to avoid YARA limits
+            if len(cleaned_line) > max_string_length:
+                cleaned_line = cleaned_line[:max_string_length]
+                original_length = len(line.strip())
+                print(f"Warning: String truncated for rule {yara_identifier} "
+                      f"(original length: {original_length})")
+
+            escaped_line = cleaned_line.replace('\\', '\\\\').replace('"', '\\"')
+            yara_strings.append(f'\t$s{string_counter} = "{escaped_line}"')
+            string_counter += 1
+
+    return yara_strings
+
+
 def generate_yara_rule_text(label, content):
     """
     Generates the text for a YARA rule.
@@ -87,74 +178,18 @@ def generate_yara_rule_text(label, content):
 
     # Create a valid YARA identifier
     yara_identifier = re.sub(r'[^a-zA-Z0-9_]', '_', label)
-    yara_strings = []
 
     # More aggressive sanitization while preserving newlines
     sanitized_content = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', content)
-    
+
     # Using re.split to handle various line endings more robustly
     lines = re.split(r'[\r\n]+', sanitized_content.strip())
-    
-    if label.lower().endswith("signatures_list"): # Adjusted condition for flexibility
-        # Special handling for CSV
-        if not lines:
-            print("Empty CSV file")
-            return ""
 
-        csv_reader = csv.reader(lines)
-        
-        # Skip header if it exists
-        try:
-            first_row = next(csv_reader)
-            if first_row and any(word in first_row[0].lower() for word in ['name', 'signature', 'hash', 'file']):
-                print(f"Header detected and skipped: {first_row[0]}")
-            elif first_row and first_row[0].strip():
-                # Process the first row if it's not a header
-                sanitized_string = first_row[0].strip()
-                if sanitized_string:
-                    escaped_string = sanitized_string.replace('\\', '\\\\').replace('"', '\\"')
-                    yara_strings.append(f'\t$s0 = "{escaped_string}"')
-        except StopIteration:
-            print("Empty CSV or no data")
-            return ""
-
-        string_counter = len(yara_strings)
-        max_strings_for_csv = 9000  # Well below YARA's 10,000 limit
-        
-        for row in csv_reader:
-            if row and row[0]:
-                # Stop if we've reached the maximum number of strings
-                if string_counter >= max_strings_for_csv:
-                    print(f"Warning: Limiting CSV rule to {max_strings_for_csv} strings to avoid YARA limits")
-                    break
-                    
-                sanitized_string = row[0].strip()
-                if sanitized_string:
-                    escaped_string = sanitized_string.replace('\\', '\\\\').replace('"', '\\"')
-                    yara_strings.append(f'\t$s{string_counter} = "{escaped_string}"')
-                    string_counter += 1
-
+    # Process based on file type
+    if label.lower().endswith("signatures_list"):  # Adjusted condition for flexibility
+        yara_strings = _process_csv_data(lines, label)
     else:
-        # Handling for general text files
-        string_counter = 0
-        max_string_length = 8192  # YARA string length limit
-        max_strings_per_rule = 100  # Practical limit for rule readability
-        
-        for line in lines:
-            cleaned_line = line.strip()
-            if cleaned_line and not cleaned_line.startswith(('#', '//')):
-                # Check if we've reached the maximum number of strings
-                if string_counter >= max_strings_per_rule:
-                    break
-                    
-                # Truncate very long strings to avoid YARA limits
-                if len(cleaned_line) > max_string_length:
-                    cleaned_line = cleaned_line[:max_string_length]
-                    print(f"Warning: String truncated for rule {yara_identifier} (original length: {len(line.strip())})")
-                
-                escaped_line = cleaned_line.replace('\\', '\\\\').replace('"', '\\"')
-                yara_strings.append(f'\t$s{string_counter} = "{escaped_line}"')
-                string_counter += 1
+        yara_strings = _process_text_data(lines, yara_identifier)
 
     print(f"Valid strings found: {len(yara_strings)}")
 
@@ -175,6 +210,94 @@ def generate_yara_rule_text(label, content):
 
 
 # Step 3: Compilation and Storage
+def _validate_and_prepare_rules(rules_dict):
+    """
+    Validate rules dictionary and prepare valid rules list.
+
+    Args:
+        rules_dict (dict): Dictionary of rule labels and rule text.
+
+    Returns:
+        list: List of valid rules, empty if none found.
+    """
+    valid_rules = []
+    for label, rule_text in rules_dict.items():
+        if rule_text and rule_text.strip():
+            valid_rules.append(rule_text)
+            print(f"Valid rule included: {label}")
+        else:
+            print(f"Empty rule omitted: {label}")
+    return valid_rules
+
+
+def _write_rules_to_file(combined_rules, output_file):
+    """
+    Write combined rules to output file.
+
+    Args:
+        combined_rules (str): Combined YARA rules text.
+        output_file (str): Path to output file.
+
+    Returns:
+        bool: True if successful, False otherwise.
+    """
+    try:
+        with open(output_file, 'w', encoding='utf-8') as output_handle:
+            output_handle.write(combined_rules)
+        return True
+    except (OSError, IOError, PermissionError) as error:
+        print(f"Error writing file: {error}")
+        return False
+
+
+def _validate_yara_syntax(combined_rules, output_file):
+    """
+    Validate YARA syntax and save compiled version if available.
+
+    Args:
+        combined_rules (str): Combined YARA rules text.
+        output_file (str): Path to output file.
+    """
+    if not YARA_AVAILABLE:
+        print("yara-python not available - Only text file was saved")
+        return
+
+    print("\nValidating YARA syntax...")
+    try:
+        compiled_rules = yara.compile(source=combined_rules)
+        print("Valid YARA syntax - Rules compiled correctly")
+
+        compiled_file = output_file.replace('.yar', '_compiled.yar')
+        compiled_rules.save(compiled_file)
+        print(f"Compiled version saved: {compiled_file}")
+
+    except yara.SyntaxError as syntax_error:
+        print(f"YARA syntax error: {syntax_error}")
+        print("Text file saved for manual review")
+    except (yara.Error, OSError, IOError) as compilation_error:
+        print(f"Compilation error: {compilation_error}")
+        print("Text file saved correctly")
+
+
+def _print_file_sample(output_file):
+    """
+    Print a sample of the generated file.
+
+    Args:
+        output_file (str): Path to output file.
+    """
+    print("\nSample of the generated file:")
+    try:
+        with open(output_file, 'r', encoding='utf-8') as sample_file:
+            lines = sample_file.readlines()[:15]
+            for i, line in enumerate(lines, 1):
+                print(f"   {i:2d}: {line.rstrip()}")
+            if len(lines) >= 15:
+                print("   ...")
+    except (OSError, IOError) as error:
+        print(f"Error reading file sample: {error}")
+
+
 def compile_and_save_yara_rules(rules_dict, output_directory="../output",
                                filename="compiled_rules.yar"):
     """
@@ -196,76 +319,54 @@ def compile_and_save_yara_rules(rules_dict, output_directory="../output",
         print("ERROR: No rules to compile")
         return False
 
+    # Create output directory if needed
     if not os.path.exists(output_directory):
         os.makedirs(output_directory)
         print(f"Directory created: {output_directory}")
 
-    valid_rules = []
-    for label, rule_text in rules_dict.items():
-        if rule_text and rule_text.strip():
-            valid_rules.append(rule_text)
-            print(f"Valid rule included: {label}")
-        else:
-            print(f"Empty rule omitted: {label}")
-
+    # Validate and prepare rules
+    valid_rules = _validate_and_prepare_rules(rules_dict)
     if not valid_rules:
         print("ERROR: No valid rules to save")
         return False
 
+    # Prepare combined rules and output file path
     combined_rules = "\n".join(valid_rules)
     combined_rules = re.sub(r'[\x00]', '', combined_rules)
     output_file = os.path.join(output_directory, filename)
 
+    # Print summary
     print("\nSUMMARY:")
     print(f"   Valid rules: {len(valid_rules)}")
     print(f"   Total size: {len(combined_rules):,} characters")
     print(f"   Destination file: {output_file}")
 
     try:
-        with open(output_file, 'w', encoding='utf-8') as output_handle:
-            output_handle.write(combined_rules)
+        # Write rules to file
+        if not _write_rules_to_file(combined_rules, output_file):
+            return False
 
-        if os.path.exists(output_file):
-            file_size = os.path.getsize(output_file)
-            print("\nFILE SAVED SUCCESSFULLY!")
-            print(f"   Location: {os.path.abspath(output_file)}")
-            print(f"   Size: {file_size:,} bytes")
-            print(f"   Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        else:
+        # Verify file was created
+        if not os.path.exists(output_file):
             print("ERROR: The file was not created")
             return False
 
-        if YARA_AVAILABLE:
-            print("\nValidating YARA syntax...")
-            try:
-                compiled_rules = yara.compile(source=combined_rules)
-                print("Valid YARA syntax - Rules compiled correctly")
+        # Print success information
+        file_size = os.path.getsize(output_file)
+        print("\nFILE SAVED SUCCESSFULLY!")
+        print(f"   Location: {os.path.abspath(output_file)}")
+        print(f"   Size: {file_size:,} bytes")
+        print(f"   Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
-                compiled_file = output_file.replace('.yar', '_compiled.yar')
-                compiled_rules.save(compiled_file)
-                print(f"Compiled version saved: {compiled_file}")
+        # Validate YARA syntax and create compiled version
+        _validate_yara_syntax(combined_rules, output_file)
 
-            except yara.SyntaxError as syntax_error:
-                print(f"YARA syntax error: {syntax_error}")
-                print("Text file saved for manual review")
-            except Exception as compilation_error:
-                print(f"Compilation error: {compilation_error}")
-                print("Text file saved correctly")
-        else:
-            print("yara-python not available - Only text file was saved")
-
-        print("\nSample of the generated file:")
-        with open(output_file, 'r', encoding='utf-8') as sample_file:
-            lines = sample_file.readlines()[:15]
-            for i, line in enumerate(lines, 1):
-                print(f"   {i:2d}: {line.rstrip()}")
-            if len(lines) >= 15:
-                print("   ...")
+        # Print file sample
+        _print_file_sample(output_file)
 
         return True
 
-    except Exception as general_error:
-        import traceback
+    except (OSError, IOError, PermissionError) as general_error:
         print(f"UNEXPECTED ERROR: {general_error}")
         traceback.print_exc()
         return False
@@ -361,7 +462,7 @@ def scan_file_with_yara(rules_path, target_file):
 
     except yara.Error as yara_error:
         print(f"YARA error during scan: {yara_error}")
-    except Exception as general_error:
+    except (OSError, IOError, PermissionError) as general_error:
         print(f"An unexpected error occurred: {general_error}")
 
 
