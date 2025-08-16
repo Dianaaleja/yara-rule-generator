@@ -7,3 +7,21 @@ __pycache__/
 *.pyc
 .DS_Store
 *.log
+
+# Ignora entornos virtuales
+venv/
+.env
+
+# Ignora archivos de datos
+data/
+*.csv
+*.json
+*.parquet
+
+# Ignora modelos de ML
+*.h5
+*.pkl
+*.onnx
+
+# Ignora archivos de notebooks generados
+.ipynb_checkpoints/
