@@ -25,7 +25,29 @@ The script's design makes it difficult to read and maintain.
 * **Monolithic Logic:** The `generate_hashes` function is long and combines multiple operations. A more modular design would separate the hashing and encoding logic into smaller, reusable functions, improving readability.
 * **Unsafe Output Handling:** The script manually constructs the CSV file line by concatenating strings and using `sed` to escape quotes. This is brittle and prone to errors, especially if the data contains special characters. Using a dedicated CSV library is a much safer and more robust approach.
 
-## 4. Conclusion
+## 4. Notes about Harden the Bash scripts in general
+
+
+### Problem
+Some scripts may break silently or behave insecurely if inputs are unexpected.
+
+### Solution
+At the top of every script, add:
+
+```bash
+set -euo pipefail
+IFS=$'\n\t'
+```
+* ```set -e``` → stop on error
+* ```set -u``` → stop if a variable is undefined
+* ```set -o pipefail```→ stop if part of a pipeline fails
+* Resetting IFS prevents word-splitting bugs
+
+Always quote variables `("$file" not $file)`. Remove any eval.
+Why:
+This is basic safe Bash practice. Even if Python does most of the work, Bash should still be reliable.
+
+## 5. Conclusion
 
 The `create_hashes_functions.sh` script serves its purpose, but it has significant shortcomings in security, efficiency, and maintainability. Refactoring it into a language like Python, which offers native libraries for hashing and file handling (`hashlib`, `base64`, `csv`), allows for a **safer, more modular, readable, and portable** solution. This new version not only eliminates security risks but also establishes a more solid foundation for future development.
 

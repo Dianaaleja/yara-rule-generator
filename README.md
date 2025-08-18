@@ -19,10 +19,28 @@ The main script, `generate_yara_rules.py`, performs the following steps:
 4. **Validation**  
    Allows scanning a target file with the newly created rules to validate their functionality.
 
+## 🛡️ Shell Script Hardening and Security Audit
+
+To ensure the reliability and security of the automation pipeline, we conducted a thorough security audit of the create_hashes_functions.sh script. This analysis identified critical security risks and opportunities for improvement.
+
+As a result, the following actions were taken:
+
+* **Removal of the `eval Command:** The script's primary security risk was the use of `eval`, which posed a severe command injection vulnerability. This command has been entirely removed and replaced with a safer, more robust method.
+
+* **Adoption of Best Practices:** The script was refactored to align with secure Bash practices. This includes adding `set -euo pipefail` to ensure the script stops on errors, quoting all variables (`"$file"`), and resetting the Internal Field Separator (`IFS`).
+
+* **Improved Efficiency and Modularity:** The script has been rewritten to reduce its dependency on external subprocesses, such as `openssl`, `awk`, and `sed. By leveraging native Python libraries, we achieved a more efficient, portable, and maintainable solution.
+
+These changes provide a stable and secure foundation for the project's automation process, mitigating security risks and improving overall performance.
+
+
 ## 📂 Project Structure
 
 ```
 data_scientist_yara_project/
+├── my_analysis_and_refactoring
+│ ├── refactored_scripts
+│ └── generate_rules_ml.py
 ├── new_input_files/
 │ ├── Adware.txt
 │ ├── Backdoor.txt
