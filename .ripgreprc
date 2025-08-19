@@ -1,0 +1,14 @@
+# Ripgrep configuration options
+--color=auto
+--smart-case
+
+# Exclude the test scripts directory
+# This excludes all files inside the test_scripts folder.
+--glob=!test_scripts/
+
+# Exclude specific data files from the search
+--glob=!test_scripts/windows_asr_rules.csv
+--glob=!test_scripts/windows_asr_rules.meta
+
+# Exclude the compiled yara rules file
+--glob=!compiled_rules.yar

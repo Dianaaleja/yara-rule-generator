@@ -1,0 +1,14 @@
+# Gitleaks configures rules by default.
+# This section is for allowing exceptions to false positives.
+# No need to add rules if there are no false positives in the repository.
+title = "gitleaks config"
+
+[allowlist]
+# Add specific paths, commits, or regexes to allowlist
+# Example:
+# paths = [
+#   "path/to/allowed/file"
+# ]
+# commits = [
+#   "commit-hash-to-allow"
+# ]

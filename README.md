@@ -40,7 +40,9 @@ These changes provide a stable and secure foundation for the project's automatio
 data_scientist_yara_project/
 ├── my_analysis_and_refactoring
 │ ├── refactored_scripts
-│ └── generate_rules_ml.py
+│  └── code_refactoring_analysis.ipynb
+│  └── refactored_hashes.csv
+│  └── security_audit.md
 ├── new_input_files/
 │ ├── Adware.txt
 │ ├── Backdoor.txt
@@ -75,3 +77,14 @@ To validate the rules, use the --scan argument followed by the path to the file 
 ```bash
 python src/generate_yara_rules.py new_input_files output --scan new_input_files/Behavior.txt
 ```
+### 🔒 Repository Configuration
+
+This repository includes configuration files to ensure best practices for code search and security.
+
+* **Ripgrep:** A `.ripgreprc` file has been implemented to configure efficient code searches, excluding unnecessary files and directories from the search scope.
+
+* **Gitleaks:** A `.gitleaks.toml` file is included to scan the repository for secrets. To run Gitleaks locally and verify the configuration, it is required to install the tool using Homebrew:
+
+    ```bash
+    brew install gitleaks
+    ```
